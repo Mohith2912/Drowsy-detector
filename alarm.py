@@ -37,17 +37,34 @@ class AlarmManager:
 
     def _load_sound(self):
         """Load the alarm sound file."""
-        if not os.path.exists(self._sound_path):
-            print(f"[AlarmManager] WARNING: Sound file not found: {self._sound_path}")
-            print("[AlarmManager] Generating a default alarm tone...")
+        # Regenerate if missing or corrupted (0 bytes)
+        if not os.path.exists(self._sound_path) or os.path.getsize(self._sound_path) == 0:
+            if os.path.exists(self._sound_path):
+                try:
+                    os.remove(self._sound_path)
+                except Exception:
+                    pass
+            print(f"[AlarmManager] Sound file missing or empty: {self._sound_path}")
+            print("[AlarmManager] Generating default alarm tone...")
             self._generate_default_alarm()
 
         try:
             self._sound = pygame.mixer.Sound(self._sound_path)
             self._sound.set_volume(self._volume)
+            print(f"[AlarmManager] Alarm loaded successfully (length={self._sound.get_length():.2f}s)")
         except Exception as e:
             print(f"[AlarmManager] ERROR loading sound: {e}")
-            self._sound = None
+            print("[AlarmManager] Attempting to regenerate...")
+            try:
+                if os.path.exists(self._sound_path):
+                    os.remove(self._sound_path)
+                self._generate_default_alarm()
+                self._sound = pygame.mixer.Sound(self._sound_path)
+                self._sound.set_volume(self._volume)
+                print(f"[AlarmManager] Regenerated alarm loaded successfully")
+            except Exception as e2:
+                print(f"[AlarmManager] FATAL: Could not generate or load alarm: {e2}")
+                self._sound = None
 
     def _generate_default_alarm(self):
         """Generate a very loud, aggressive alarm .wav file."""
@@ -55,12 +72,15 @@ class AlarmManager:
         import wave
         import struct
 
-        os.makedirs(os.path.dirname(self._sound_path), exist_ok=True)
+        sound_dir = os.path.dirname(self._sound_path)
+        if sound_dir:
+            os.makedirs(sound_dir, exist_ok=True)
 
         sample_rate = 44100
         duration = 2.0  # seconds (will loop)
+        num_samples = int(sample_rate * duration)
 
-        t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+        t = np.linspace(0, duration, num_samples, endpoint=False)
 
         # Layer multiple piercing frequencies for maximum loudness
         signal = (
@@ -77,20 +97,25 @@ class AlarmManager:
 
         # Hard-clip to absolute max amplitude for maximum loudness
         signal = np.clip(signal, -1.0, 1.0)
-        signal = signal / np.max(np.abs(signal))
+        signal_max = np.max(np.abs(signal))
+        if signal_max > 0:
+            signal = signal / signal_max
         signal = (signal * 32767).astype(np.int16)
 
         # Write as stereo WAV (both channels at full blast)
-        with wave.open(self._sound_path, "w") as wav_file:
-            wav_file.setnchannels(2)       # Stereo
-            wav_file.setsampwidth(2)       # 16-bit
-            wav_file.setframerate(sample_rate)
-            for sample in signal:
-                s = int(sample)
-                # Write same sample to left and right channels
-                wav_file.writeframes(struct.pack("<hh", s, s))
-
-        print(f"[AlarmManager] Loud alarm generated: {self._sound_path}")
+        try:
+            with wave.open(self._sound_path, "w") as wav_file:
+                wav_file.setnchannels(2)       # Stereo
+                wav_file.setsampwidth(2)       # 16-bit
+                wav_file.setframerate(sample_rate)
+                # Write all samples at once (more efficient)
+                for sample in signal:
+                    s = int(sample)
+                    wav_file.writeframes(struct.pack("<hh", s, s))
+            sz = os.path.getsize(self._sound_path)
+            print(f"[AlarmManager] Loud alarm generated: {self._sound_path} ({sz} bytes)")
+        except Exception as e:
+            print(f"[AlarmManager] ERROR generating alarm: {e}")
 
     def play(self):
         """Start playing the alarm in an infinite loop (if not already playing)."""

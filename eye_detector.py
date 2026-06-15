@@ -62,7 +62,9 @@ class EyeDetector:
             ear_threshold: EAR value below which eyes are considered closed.
         """
         self.ear_threshold = ear_threshold
+        self.ear_threshold = ear_threshold
 
+        # Debug: ensure model path exists and is readable
         if not os.path.exists(_MODEL_PATH):
             raise FileNotFoundError(
                 f"Face landmarker model not found at: {_MODEL_PATH}\n"
@@ -73,6 +75,15 @@ class EyeDetector:
                 "face_landmarker/face_landmarker/float16/latest/"
                 "face_landmarker.task', 'models/face_landmarker.task')\""
             )
+
+        try:
+            sz = os.path.getsize(_MODEL_PATH)
+            print(f"[EyeDetector] Using model: {_MODEL_PATH} (size={sz} bytes)")
+            # quick readability check
+            with open(_MODEL_PATH, "rb") as _f:
+                _f.read(8)
+        except Exception as e:
+            raise RuntimeError(f"Model file exists but is not readable: {_MODEL_PATH}: {e}")
 
         options = FaceLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=_MODEL_PATH),
